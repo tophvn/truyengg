@@ -1,0 +1,38 @@
+# Enable rewrite engine
+RewriteEngine On
+RewriteBase /
+
+# Allow direct access to all PHP files in includes/auth/, includes/handlers/, includes/admin/, and includes/translator/
+RewriteRule ^includes/(auth|handlers|admin|translator)/.*\.php$ - [L,NC]
+
+# Route comic detail pages
+RewriteRule ^truyen-tranh/([a-z0-9-]+)\.html$ truyen-tranh.php?slug=$1 [L,NC]
+
+# Route chapter pages
+RewriteRule ^truyen-tranh/([a-z0-9-]+)-(\d+)-chap-([0-9]+)\.html$ chapter.php?slug=$1&comic_id=$2&chapter=$3 [L,NC]
+
+# Prevent direct access to other PHP files in includes directory
+RewriteCond %{REQUEST_URI} ^/includes/.*\.php$ [NC]
+RewriteCond %{REQUEST_URI} !^/includes/(auth|handlers|admin|translator)/.*\.php$ [NC]
+RewriteRule .* - [F,L]
+
+# Account-related routes
+RewriteRule ^thiet-lap-tai-khoan.html$ thiet-lap-tai-khoan.php?section=thong-tin-ca-nhan [L,NC]
+RewriteRule ^thay-doi-mat-khau.html$ thiet-lap-tai-khoan.php?section=thay-doi-mat-khau [L,NC]
+RewriteRule ^lich-su.html$ thiet-lap-tai-khoan.php?section=lich-su [L,NC]
+RewriteRule ^theo-doi.html$ thiet-lap-tai-khoan.php?section=theo-doi [L,NC]
+RewriteRule ^nap-xu.html$ thiet-lap-tai-khoan.php?section=nap-xu [L,NC]
+RewriteRule ^lich-su-nap-xu.html$ thiet-lap-tai-khoan.php?section=lich-su-nap-xu [L,NC]
+RewriteRule ^lich-su-thanh-toan.html$ thiet-lap-tai-khoan.php?section=lich-su-thanh-toan [L,NC]
+RewriteRule ^binh-luan.html$ thiet-lap-tai-khoan.php?section=binh-luan [L,NC]
+RewriteRule ^dang-ky-nhom-dich.html$ thiet-lap-tai-khoan.php?section=dang-ky-nhom-dich [L,NC]
+RewriteRule ^dong-bo-tai-khoan.html$ thiet-lap-tai-khoan.php?section=dong-bo-tai-khoan [L,NC]
+RewriteRule ^logout.html$ includes/auth/logout.php [L,NC]
+
+# Handle 404 for non-existing pages or invalid URLs
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ 404.php [L]
+
+# Custom error document for 404 errors
+ErrorDocument 404 /404.php
