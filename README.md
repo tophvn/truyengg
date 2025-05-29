@@ -112,15 +112,15 @@ Dưới đây là các ảnh chụp giao diện của TruyenGG, sắp xếp từ
 3. **Cấu hình bảng settings trong cơ sở dữ liệu**  
    Bảng `settings` chứa các khóa cấu hình quan trọng. Cập nhật các giá trị sau:  
    - **google_client_id**: ID ứng dụng Google API cho đăng nhập OAuth.  
-     *Ví dụ*: `614640831923-t6u5hqvrp2t8g3lv557bede6gu8c35fo.apps.googleusercontent.com`  
+     *Ví dụ*: `61490985390-t6u5hqvrp2t8g3lv557bede6gu8c35fo.apps.googleusercontent.com`  
    - **google_client_secret**: Khóa bí mật của Google API.  
-     *Ví dụ*: `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`  
+     *Ví dụ*: `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`  
    - **google_redirect_uri**: URL chuyển hướng cho Google OAuth.  
      *Ví dụ*: `http://localhost/truyengg/includes/auth/google-callback.php`  
    - **turnstile_secret_key**: Khóa bí mật Cloudflare Turnstile để chống bot.  
-     *Ví dụ*: `0x4AAAAAABBmdz5FqnaxoDoaMqkvkbV7Q1o`  
+     *Ví dụ*: `0x4AAAAAABBmdz5FqnaxoDoaMqk8987o99`  
    - **imgbb_api_key**: Khóa API ImgBB để tải ảnh lên.  
-     *Ví dụ*: `643885b88cdae3183c2ddd0e9ae4b5bc`
+     *Ví dụ*: `6438u80998cdae3183c2ddd0e9ae4b5bc`
 
 ### Chạy trên localhost
 1. Tải mã nguồn:  
