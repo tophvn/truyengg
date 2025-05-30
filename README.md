@@ -12,7 +12,7 @@ Chào mừng bạn đến với **TruyenGG**, một ứng dụng web đọc truy
 - **Giao diện**: Hỗ trợ chế độ sáng/tối, thiết kế tương tự ~90% [truyengg.com](https://truyengg.com/).
 - **Tính năng nâng cao**: Tìm kiếm theo thể loại, xem top truyện tháng, quản lý thông tin cá nhân.
 
-Video hướng dẫn: https://www.youtube.com/watch?v=v7DEGN3ZVsg&t=874s
+Video hướng dẫn: https://youtu.be/v7DEGN3ZVsg?si=ABQ8Dv0iLTzvBnbI
 ## Ảnh Demo
 
 Dưới đây là các ảnh chụp giao diện của TruyenGG, sắp xếp từ trang người dùng đến trang quản trị:
