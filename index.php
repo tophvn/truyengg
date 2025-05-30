@@ -97,9 +97,9 @@ function formatNumber($number) {
     </style>
 </head>
 <body class="dark-style">
-    <div class="container mt15 h1-home">
-        <i class="bi bi-house-heart-fill"></i>
-        <h1 class="fw600">TruyenGG - Đọc Truyện Tranh, Truyện Chữ Miễn Phí</h1>
+    <div class="container mt15 h1-home d-flex align-items-center">
+        <i class="bi bi-house-heart-fill me-2"></i>
+        <h1 class="fw600 mb-0">TruyenGG - Đọc Truyện Tranh, Truyện Chữ Miễn Phí</h1>
     </div>
     <div class="container container-background">
         <section>
