@@ -1,15 +1,15 @@
-<!-- Tools Crawl truyện từ TruyenQQ by HoangToph auto vượt Captcha Cloudflare -->
 <?php
 session_start();
 require_once dirname(__DIR__, 2) . '/config/database.php';
 require_once dirname(__DIR__, 2) . '/config/routes.php';
 
+// Kiểm tra quyền admin
 if (!isset($_SESSION['user_id']) || !isset($_SESSION['roles']) || $_SESSION['roles'] !== 'admin') {
     header('Location: ' . HOME_URL);
     exit;
 }
 
-// Danh sách các chuỗi User-Agent để giả lập trình duyệt
+// Danh sách User-Agent
 $user_agents = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.90 Safari/537.36",
     "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36",
@@ -19,36 +19,169 @@ $user_agents = [
     "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.3"
 ];
 
-// Hàm làm sạch tên tệp để loại bỏ ký tự không hợp lệ
+// Hàm slugify
+function slugify($string) {
+    $string = iconv('UTF-8', 'ASCII//TRANSLIT', $string);
+    $string = preg_replace('/[^a-zA-Z0-9\s-]/', '', $string);
+    $string = preg_replace('/\s+/', '-', strtolower($string));
+    return trim($string, '-');
+}
+
+// Hàm làm sạch tên file
 function sanitize_filename($filename) {
     return preg_replace('/[\\/*:"<>|?]/', '', $filename);
 }
 
-// Hàm gửi yêu cầu HTTP bằng cURL để lấy nội dung trang web
-function fetch_url($url, $headers) {
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_ENCODING, ''); // auto giải nén nội dung gzip/deflate
-    $response = curl_exec($ch);
-    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $result = ['success' => true, 'http_code' => $http_code, 'response' => $response];
-    if ($http_code == 403 || $http_code == 503) {
-        $result['success'] = false;
-        $result['message'] = "Bị chặn bởi Cloudflare hoặc CAPTCHA. Vui lòng thử lại sau.";
-    } elseif (curl_errno($ch)) {
-        $result['success'] = false;
-        $result['message'] = "Lỗi cURL: " . curl_error($ch);
+// Hàm gửi yêu cầu HTTP bằng cURL
+function fetch_url($url, $headers, $is_json = false, $retries = 3, $delay = 2) {
+    for ($attempt = 1; $attempt <= $retries; $attempt++) {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_ENCODING, '');
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        curl_setopt($ch, CURLOPT_COOKIEJAR, sys_get_temp_dir() . '/cookies.txt');
+        curl_setopt($ch, CURLOPT_COOKIEFILE, sys_get_temp_dir() . '/cookies.txt');
+        $response = curl_exec($ch);
+        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $result = ['success' => true, 'http_code' => $http_code, 'response' => $response];
+
+        if ($http_code == 403 || $http_code == 503) {
+            $result['success'] = false;
+            $result['message'] = "Bị chặn bởi Cloudflare hoặc CAPTCHA (lần thử $attempt/$retries).";
+            if ($attempt < $retries) {
+                $result['message'] .= " Thử lại sau $delay giây...";
+                sleep($delay);
+                $delay *= 2;
+            }
+        } elseif (curl_errno($ch)) {
+            $result['success'] = false;
+            $result['message'] = "Lỗi cURL: " . curl_error($ch);
+        } elseif ($is_json && $response) {
+            $json = json_decode($response, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                $result['success'] = false;
+                $result['message'] = "Lỗi phân tích JSON: " . json_last_error_msg();
+            } else {
+                $result['response'] = $json;
+            }
+        }
+        curl_close($ch);
+        if ($result['success']) {
+            return $result;
+        }
     }
-    curl_close($ch);
     return $result;
 }
 
-// Hàm thu thập một chương truyện
-function one_chapter($web, $headers, $output_dir) {
+// Hàm tải một chương từ MimiHentai
+function one_chapter_mimi($chapter_id, $chapter_name, $headers, $output_dir, $manga_title) {
+    $result = ['success' => true, 'messages' => []];
+    $chapter_name = sanitize_filename($chapter_name);
+    $manga_title = sanitize_filename($manga_title);
+    $folder = "$output_dir/$manga_title/$chapter_name";
+    if (!file_exists($folder)) {
+        if (!mkdir($folder, 0777, true)) {
+            $result['success'] = false;
+            $result['messages'][] = "Lỗi: Không thể tạo thư mục $folder";
+            return $result;
+        }
+    }
+
+    $url = "https://mimihentai.com/api/v1/manga/chapter?id=$chapter_id";
+    $response = fetch_url($url, $headers, true);
+    if (!$response['success']) {
+        $result['success'] = false;
+        $result['messages'][] = $response['message'];
+        return $result;
+    }
+
+    $images = $response['response']['pages'] ?? [];
+    if (empty($images)) {
+        $result['success'] = false;
+        $result['messages'][] = "Không tìm thấy hình ảnh trong chương $chapter_name.";
+        return $result;
+    }
+
+    foreach ($images as $index => $img_url) {
+        $result['messages'][] = "Đang tải hình ảnh: $img_url";
+        $file = "$folder/image_" . sprintf("%03d", $index + 1) . ".jpg";
+        $img_content = fetch_url($img_url, $headers);
+        if ($img_content['success'] && file_put_contents($file, $img_content['response'])) {
+            $result['messages'][] = "Đã lưu $file";
+        } else {
+            $result['success'] = false;
+            $result['messages'][] = "Lỗi: Không thể lưu $file";
+        }
+    }
+    sleep(rand(1, 2));
+    $result['messages'][] = "Hoàn thành chương: $chapter_name";
+    return $result;
+}
+
+// Hàm tải toàn bộ truyện từ MimiHentai
+function all_chapters_mimi($manga_id, $manga_title, $headers, $output_dir, $parts_only = false, $part_start = 0, $part_end = 0) {
+    $result = ['success' => true, 'messages' => []];
+    $url = "https://mimihentai.com/api/v1/manga/gallery/$manga_id";
+    $response = fetch_url($url, $headers, true);
+    if (!$response['success']) {
+        // Thử crawl HTML nếu API thất bại
+        $html_response = fetch_url("https://mimihentai.com/g/$manga_id", $headers);
+        if (!$html_response['success']) {
+            $result['success'] = false;
+            $result['messages'][] = "API và HTML đều thất bại: " . $html_response['message'];
+            return $result;
+        }
+
+        $doc = new DOMDocument();
+        @$doc->loadHTML($html_response['response']);
+        $xpath = new DOMXPath($doc);
+
+        $title_nodes = $xpath->query("//h1[@class='gallery-title']");
+        $manga_title = $title_nodes->length > 0 ? trim($title_nodes->item(0)->textContent) : $manga_title;
+        $result['messages'][] = "Tiêu đề truyện: $manga_title";
+
+        // Giả lập một chương duy nhất vì MimiHentai thường là gallery đơn
+        $chapters = [['id' => $manga_id, 'title' => $manga_title]];
+    } else {
+        $chapters = $response['response'] ?? [];
+        $result['messages'][] = "Tìm thấy " . count($chapters) . " chương cho $manga_title.";
+    }
+
+    if (empty($chapters)) {
+        $result['success'] = false;
+        $result['messages'][] = "Không tìm thấy chương nào.";
+        return $result;
+    }
+
+    $manga_title = sanitize_filename($manga_title);
+    $folder = "$output_dir/$manga_title";
+
+    if ($parts_only) {
+        $part_start = max(1, $part_start);
+        $part_end = min($part_end, count($chapters));
+        $result['messages'][] = "Tải từ chương $part_start đến $part_end.";
+        for ($i = $part_start - 1; $i < $part_end && $i < count($chapters); $i++) {
+            $chap = $chapters[$i];
+            $chapter_result = one_chapter_mimi($chap['id'], $chap['title'] ?? "Chap {$chap['id']}", $headers, $output_dir, $manga_title);
+            $result['success'] = $result['success'] && $chapter_result['success'];
+            $result['messages'] = array_merge($result['messages'], $chapter_result['messages']);
+        }
+    } else {
+        foreach ($chapters as $index => $chap) {
+            $chapter_result = one_chapter_mimi($chap['id'], $chap['title'] ?? "Chap {$chap['id']}", $headers, $output_dir, $manga_title);
+            $result['success'] = $result['success'] && $chapter_result['success'];
+            $result['messages'] = array_merge($result['messages'], $chapter_result['messages']);
+        }
+    }
+    return $result;
+}
+
+// Hàm crawl một chương từ TruyenQQ
+function one_chapter_truyenqq($web, $headers, $output_dir) {
     $result = ['success' => true, 'messages' => []];
     $html_content = fetch_url($web, $headers);
     if (!$html_content['success']) {
@@ -95,10 +228,9 @@ function one_chapter($web, $headers, $output_dir) {
         return $result;
     }
 
-    // Download images
     foreach ($img_links as $index => $link) {
         $result['messages'][] = "Đang tải hình ảnh: $link";
-        $file = "$folder/image_$index.jpg";
+        $file = "$folder/image_" . sprintf("%03d", $index + 1) . ".jpg";
         $img_content = fetch_url($link, $headers);
         if ($img_content['success'] && file_put_contents($file, $img_content['response'])) {
             $result['messages'][] = "Đã lưu $file";
@@ -112,8 +244,8 @@ function one_chapter($web, $headers, $output_dir) {
     return $result;
 }
 
-// Hàm thu thập tất cả các chương của truyện
-function all_chapters($web, $headers, $domain, $output_dir, $parts_only = false, $part_start = 0, $part_end = 0) {
+// Hàm crawl tất cả chương từ TruyenQQ
+function all_chapters_truyenqq($web, $headers, $domain, $output_dir, $parts_only = false, $part_start = 0, $part_end = 0) {
     $result = ['success' => true, 'messages' => []];
     $html_content = fetch_url($web, $headers);
     if (!$html_content['success']) {
@@ -133,7 +265,7 @@ function all_chapters($web, $headers, $domain, $output_dir, $parts_only = false,
         $chapters[] = $domain . $href;
     }
     $chapters = array_reverse($chapters);
-    $result['messages'][] = "Danh sách chương: " . json_encode($chapters);
+    $result['messages'][] = "Tìm thấy " . count($chapters) . " chương.";
     if (empty($chapters)) {
         $result['success'] = false;
         $result['messages'][] = "Lỗi: Không tìm thấy chương nào. Vui lòng kiểm tra URL hoặc cấu trúc trang.";
@@ -150,15 +282,20 @@ function all_chapters($web, $headers, $domain, $output_dir, $parts_only = false,
         $result['messages'][] = "Không tìm thấy tiêu đề truyện.";
     }
     $folder = empty($output_dir) ? __DIR__ . "/downloads/$title" : "$output_dir/$title";
+
     if ($parts_only) {
+        $part_start = max(1, $part_start);
+        $part_end = min($part_end, count($chapters));
+        $result['messages'][] = "Tải từ chương $part_start đến $part_end.";
         for ($i = $part_start - 1; $i < $part_end && $i < count($chapters); $i++) {
-            $chapter_result = one_chapter($chapters[$i], $headers, $folder);
+            $chapter_result = one_chapter_truyenqq($chapters[$i], $headers, $folder);
             $result['success'] = $result['success'] && $chapter_result['success'];
             $result['messages'] = array_merge($result['messages'], $chapter_result['messages']);
         }
     } else {
-        foreach ($chapters as $link) {
-            $chapter_result = one_chapter($link, $headers, $folder);
+        foreach ($chapters as $index => $link) {
+            $result['messages'][] = "Tải chương " . ($index + 1) . ": $link";
+            $chapter_result = one_chapter_truyenqq($link, $headers, $folder);
             $result['success'] = $result['success'] && $chapter_result['success'];
             $result['messages'] = array_merge($result['messages'], $chapter_result['messages']);
         }
@@ -166,15 +303,16 @@ function all_chapters($web, $headers, $domain, $output_dir, $parts_only = false,
     return $result;
 }
 
-// Xử lý yêu cầu AJAX từ giao diện
+// Xử lý yêu cầu AJAX
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'crawl_manga') {
     header('Content-Type: application/json');
     $response = ['success' => false, 'messages' => []];
 
-    $web = isset($_POST['web']) ? trim($_POST['web']) : '';
-    $choose = isset($_POST['choose']) ? strtoupper(trim($_POST['choose'])) : '';
-    $part_start = isset($_POST['part_start']) ? (int)$_POST['part_start'] : 0;
-    $part_end = isset($_POST['part_end']) ? (int)$_POST['part_end'] : 0;
+    $web = trim($_POST['web'] ?? '');
+    $source = strtolower(trim($_POST['source'] ?? 'truyenqq'));
+    $choose = strtoupper(trim($_POST['choose'] ?? ''));
+    $part_start = (int)($_POST['part_start'] ?? 0);
+    $part_end = (int)($_POST['part_end'] ?? 0);
 
     if (empty($web)) {
         $response['messages'][] = "Vui lòng nhập đường link của truyện.";
@@ -182,9 +320,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         exit;
     }
 
-    $parsed_url = parse_url($web);
-    $domain = "https://" . ($parsed_url['host'] ?? 'truyenqqgo.com');
-    $referer = $domain . "/";
+    if (!in_array($source, ['truyenqq', 'mimihentai'])) {
+        $response['messages'][] = "Nguồn không hợp lệ. Vui lòng chọn TruyenQQ hoặc MimiHentai.";
+        echo json_encode($response);
+        exit;
+    }
+
+    $domain = ($source === 'truyenqq') ? 'https://truyenqqgo.com' : 'https://mimihentai.com';
+    $referer = $domain . '/';
+    $response['messages'][] = "Nguồn: " . ucfirst($source);
     $response['messages'][] = "Server: $referer";
 
     $headers = [
@@ -192,30 +336,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         "Cache-Control: max-age=0",
         "Upgrade-Insecure-Requests: 1",
         "User-Agent: " . $user_agents[array_rand($user_agents)],
-        "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+        "Accept: text/html,application/json,application/xhtml+xml,application/xml;q=0.9,image/webp,image/jpeg,*/*;q=0.8",
         "Accept-Encoding: gzip, deflate",
-        "Accept-Language: en-US,en;q=0.9,fr;q=0.8",
+        "Accept-Language: en-US,en;q=0.9,vi;q=0.8",
         "Referer: $referer"
     ];
 
-    if (strpos($web, 'chap') !== false) {
-        $response['messages'][] = "Có vẻ đây là link của 1 chap đơn. Tiến hành tải...";
-        $output_dir = __DIR__ . '/downloads';
-        $result = one_chapter($web, $headers, $output_dir);
-        $response['success'] = $result['success'];
-        $response['messages'] = array_merge($response['messages'], $result['messages']);
-    } else {
-        $response['messages'][] = "Có vẻ như đây là đường link của cả một truyện.";
+    if ($source === 'truyenqq') {
+        if (strpos($web, 'chap') !== false) {
+            $response['messages'][] = "Đây là link của một chương đơn. Tiến hành tải...";
+            $result = one_chapter_truyenqq($web, $headers, __DIR__ . '/downloads');
+            $response['success'] = $result['success'];
+            $response['messages'] = array_merge($response['messages'], $result['messages']);
+        } else {
+            $response['messages'][] = "Đây là link của cả một truyện.";
+            if ($choose === 'T') {
+                $response['messages'][] = "Tải toàn bộ truyện.";
+                $result = all_chapters_truyenqq($web, $headers, $domain, __DIR__ . '/downloads');
+                $response['success'] = $result['success'];
+                $response['messages'] = array_merge($response['messages'], $result['messages']);
+            } elseif ($choose === 'M') {
+                $response['messages'][] = "Tải các chương từ $part_start đến $part_end.";
+                $result = all_chapters_truyenqq($web, $headers, $domain, __DIR__ . '/downloads', true, $part_start, $part_end);
+                $response['success'] = $result['success'];
+                $response['messages'] = array_merge($response['messages'], $result['messages']);
+            } else {
+                $response['messages'][] = "Lựa chọn không hợp lệ. Vui lòng chọn 'T' hoặc 'M'.";
+            }
+        }
+    } elseif ($source === 'mimihentai') {
+        // Trích xuất manga_id từ URL
+        if (preg_match('/\/g\/(\d+)/', $web, $matches)) {
+            $manga_id = $matches[1];
+        } else {
+            $response['messages'][] = "URL không hợp lệ. Vui lòng nhập URL dạng https://mimihentai.com/g/60986.";
+            echo json_encode($response);
+            exit;
+        }
+
+        $response['messages'][] = "Tìm thấy ID truyện: $manga_id.";
+        $manga_title = "Manga_$manga_id"; // Mặc định, sẽ cập nhật nếu crawl HTML
+
         if ($choose === 'T') {
-            $response['messages'][] = "Bạn đã chọn tải toàn bộ các chương truyện.";
-            $response['messages'][] = "Tiến hành tải tất cả chương mà truyện hiện có...";
-            $result = all_chapters($web, $headers, $domain, __DIR__ . '/downloads');
+            $response['messages'][] = "Tải toàn bộ truyện.";
+            $result = all_chapters_mimi($manga_id, $manga_title, $headers, __DIR__ . '/downloads');
             $response['success'] = $result['success'];
             $response['messages'] = array_merge($response['messages'], $result['messages']);
         } elseif ($choose === 'M') {
-            $response['messages'][] = "Bạn đã chọn tải một phần của truyện.";
-            $response['messages'][] = "Tiến hành tải các chương từ $part_start đến $part_end...";
-            $result = all_chapters($web, $headers, $domain, __DIR__ . '/downloads', true, $part_start, $part_end);
+            $response['messages'][] = "Tải các chương từ $part_start đến $part_end.";
+            $result = all_chapters_mimi($manga_id, $manga_title, $headers, __DIR__ . '/downloads', true, $part_start, $part_end);
             $response['success'] = $result['success'];
             $response['messages'] = array_merge($response['messages'], $result['messages']);
         } else {
@@ -234,13 +403,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>TruyenGG - Công cụ Crawl Truyện</title>
-    <!-- AdminLTE CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-    <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <!-- Google Font: Source Sans Pro -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700">
     <style>
         .sidebar-dark-primary {
@@ -274,7 +439,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 </head>
 <body class="hold-transition sidebar-mini layout-fixed">
 <div class="wrapper">
-    <!-- Navbar -->
     <nav class="main-header navbar navbar-expand navbar-white navbar-light">
         <ul class="navbar-nav">
             <li class="nav-item">
@@ -292,14 +456,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             </li>
         </ul>
     </nav>
-    <!-- /.navbar -->
 
-    <!-- Main Sidebar -->
     <?php include __DIR__ . '/sidebar.php'; ?>
 
-    <!-- Content Wrapper -->
     <div class="content-wrapper">
-        <!-- Content Header -->
         <div class="content-header">
             <div class="container-fluid">
                 <div class="row mb-2">
@@ -315,26 +475,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 </div>
             </div>
         </div>
-        <!-- /.content-header -->
 
-        <!-- Main content -->
         <section class="content">
             <div class="container-fluid">
                 <div class="row">
                     <div class="col-12">
                         <div class="card">
                             <div class="card-header">
-                                <h3 class="card-title">Crawl Truyện từ TruyenQQ</h3>
+                                <h3 class="card-title">Crawl Truyện</h3>
                             </div>
                             <div class="card-body">
                                 <form id="crawlForm">
                                     <div class="form-group">
-                                        <label for="web">Nhập đường link của truyện:</label>
+                                        <label for="source">Chọn nguồn truyện:</label>
+                                        <select class="form-control" id="source" name="source">
+                                            <option value="truyenqq">TruyenQQ (truyenqqgo.com)</option>
+                                            <option value="mimihentai">MimiHentai (mimihentai.com)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="web">Nhập đường dẫn của truyện:</label>
                                         <div class="input-group">
                                             <div class="input-group-prepend">
                                                 <span class="input-group-text"><i class="fas fa-link"></i></span>
                                             </div>
-                                            <input type="text" class="form-control" id="web" name="web" placeholder="https://truyenqqgo.com/truyen-tranh/ten-truyen" required>
+                                            <input type="text" class="form-control" id="web" name="web" placeholder="https://truyenqqgo.com/truyen-tranh/ten-truyen hoặc https://mimihentai.com/g/60986" required>
                                         </div>
                                     </div>
                                     <div class="form-group">
@@ -349,7 +514,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                         </div>
                                     </div>
                                     <div class="form-group" id="part_range" style="display: none;">
-                                        <label>Ví dụ: Đầu: 60, Cuối: 100 sẽ tải các chương từ 60 đến 100.</label>
+                                        <label>Ví dụ: Đầu: 1, Cuối: 5 sẽ tải các chương từ 1 đến 5.</label>
                                         <div class="row">
                                             <div class="col-md-6">
                                                 <label for="part_start">Đầu:</label>
@@ -377,28 +542,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 </div>
             </div>
         </section>
-        <!-- /.content -->
     </div>
-    <!-- /.content-wrapper -->
 
-    <!-- Footer -->
     <footer class="main-footer">
         <strong>Copyright © 2024 <a href="<?php echo HOME_URL; ?>">TruyenGG</a>.</strong>
         All rights reserved.
     </footer>
 </div>
-<!-- ./wrapper -->
 
-<!-- jQuery -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<!-- Bootstrap 4 -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
-<!-- AdminLTE App -->
 <script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
 <script>
 $(document).ready(function() {
     $('input[name="choose"]').on('change', function() {
         $('#part_range').toggle(this.value === 'M');
+    });
+
+    $('#source').on('change', function() {
+        var source = $(this).val();
+        var placeholder = source === 'truyenqq' 
+            ? 'https://truyenqqgo.com/truyen-tranh/ten-truyen' 
+            : 'https://mimihentai.com/g/60986';
+        $('#web').attr('placeholder', placeholder);
     });
 
     $('#crawlForm').on('submit', function(e) {
@@ -418,10 +584,10 @@ $(document).ready(function() {
             data: formData,
             dataType: 'json',
             beforeSend: function() {
-                $('.progress-bar').css('width', '50%').text('50%');  
+                $('.progress-bar').css('width', '30%').text('30%');
             },
             success: function(response) {
-                $('.progress-bar').css('width', '100%').text('100%');  
+                $('.progress-bar').css('width', '100%').text('100%');
                 setTimeout(function() { $('.progress').hide(); }, 1000);
                 crawlButton.prop('disabled', false).html('<i class="fas fa-download"></i> Bắt đầu tải');
 
@@ -435,10 +601,10 @@ $(document).ready(function() {
                 });
                 $('#crawlOutput').scrollTop($('#crawlOutput')[0].scrollHeight);
             },
-            error: function() {
+            error: function(xhr, status, error) {
                 $('.progress').hide();
                 crawlButton.prop('disabled', false).html('<i class="fas fa-download"></i> Bắt đầu tải');
-                $('#crawlOutput').html('<div class="alert alert-danger">Đã xảy ra lỗi khi crawl truyện.</div>');
+                $('#crawlOutput').html('<div class="alert alert-danger">Lỗi hệ thống: ' + xhr.status + ' ' + error + '</div>');
                 $('.progress-bar').css('width', '0%').text('0%');
             }
         });
@@ -447,4 +613,3 @@ $(document).ready(function() {
 </script>
 </body>
 </html>
-

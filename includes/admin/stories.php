@@ -1104,7 +1104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             <small class="form-text text-muted">Chọn nhiều ảnh (JPG, PNG, GIF). Tối đa 32MB mỗi ảnh.</small>
                         </div>
                         <div class="form-group" id="chapter_name_input" style="display: none;">
-                            <label for="chapter_name">Tên chapter (ví dụ: Chapter 1)</label>
+                            <label for="chapter_name">Tên chapter</label>
                             <input type="text" class="form-control" id="chapter_name" name="chapter_name" placeholder="Nhập tên chapter">
                         </div>
                         <div class="progress" style="display: none;">
@@ -1224,6 +1224,34 @@ $(document).ready(function() {
         $('#chapterOutput').html('');
         $('#upload_folder').prop('checked', true);
         $('#folder_selection').show();
+
+        // Lấy số chapter hiện tại từ cơ sở dữ liệu
+        $.ajax({
+            url: '<?php echo BASE_URL; ?>includes/admin/stories.php',
+            type: 'POST',
+            data: {
+                action: 'get_latest_chapter',
+                comic_id: comicId
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success && response.latest_chapter) {
+                    var nextChapter = parseInt(response.latest_chapter) + 1;
+                    $('#chapter_name').val('Chapter ' + nextChapter);
+                } else {
+                    $('#chapter_name').val('Chapter 1');
+                }
+                if ($('input[name="upload_method"]:checked').val() === 'files') {
+                    $('#chapter_name_input').show();
+                }
+            },
+            error: function() {
+                $('#chapter_name').val('Chapter 1');
+                if ($('input[name="upload_method"]:checked').val() === 'files') {
+                    $('#chapter_name_input').show();
+                }
+            }
+        });
     });
 
     $('input[name="upload_method"]').on('change', function() {
@@ -1241,8 +1269,6 @@ $(document).ready(function() {
             $('#chapter_selection').hide();
             $('#file_selection').show();
             $('#chapter_name_input').show();
-            $('#chapter_download_folder').val('');
-            $('#chapter_folder').empty().append('<option value="">Chọn chapter</option>');
         }
     });
 
@@ -1443,6 +1469,13 @@ $(document).ready(function() {
                     alert('Lỗi hệ thống khi xóa truyện: ' + xhr.status + ' ' + error);
                 }
             });
+        }
+    });
+
+    // Xử lý AJAX để lấy chapter mới nhất
+    $.ajaxSetup({
+        data: {
+            action: 'get_latest_chapter'
         }
     });
 });
