@@ -493,10 +493,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     try {
         $comic_id = (int)($_POST['comic_id'] ?? 0);
         $download_folder = trim($_POST['download_folder'] ?? '');
-        $chapter_folder = trim($_POST['chapter_folder'] ?? '');
+        $chapter_folders = isset($_POST['chapter_folder']) && is_array($_POST['chapter_folder']) ? array_map('trim', $_POST['chapter_folder']) : [];
 
-        if ($comic_id <= 0 || empty($download_folder) || empty($chapter_folder)) {
-            $response['messages'][] = 'ID truyện, thư mục tải về và chapter là bắt buộc.';
+        if ($comic_id <= 0 || empty($download_folder) || empty($chapter_folders)) {
+            $response['messages'][] = 'ID truyện, thư mục tải về và ít nhất một chapter là bắt buộc.';
             echo json_encode($response);
             exit;
         }
@@ -514,79 +514,106 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         $conn->begin_transaction();
 
-        $chapter_dir = DOWNLOADS_DIR . '/' . $download_folder . '/' . $chapter_folder;
-        if (!is_dir($chapter_dir) || !is_readable($chapter_dir)) {
-            throw new Exception('Thư mục chapter không tồn tại hoặc không thể đọc: ' . $chapter_dir);
-        }
+        $total_chapters = count($chapter_folders);
+        $processed_chapters = 0;
+        error_log("Starting batch chapter upload: comic_id=$comic_id, download_folder=$download_folder, chapters=" . implode(', ', $chapter_folders));
 
-        $stmt = $conn->prepare("
-            INSERT INTO chapters (comic_id, chapter_name, chapter_title, is_backed_up, imgur_album_link)
-            VALUES (?, ?, ?, 1, NULL)
-        ");
-        $chapter_name = preg_replace('/[^0-9]/', '', $chapter_folder);
-        $chapter_title = $chapter_folder;
-        $stmt->bind_param('iss', $comic_id, $chapter_name, $chapter_title);
-        $stmt->execute();
-        $chapter_id = $conn->insert_id;
-        $stmt->close();
-
-        $image_dir = $chapter_dir;
-        $images = scandir($image_dir);
-        $image_order = 1;
-        $image_count = count(array_filter($images, function($item) {
-            return preg_match('/\.(jpg|jpeg|png|gif)$/i', $item);
-        }));
-        $current_progress = 0;
-        $first_image_url = null;
-
-        foreach ($images as $image) {
-            if ($image === '.' || $image === '..' || !preg_match('/\.(jpg|jpeg|png|gif)$/i', $image)) {
+        foreach ($chapter_folders as $chapter_folder) {
+            if (empty($chapter_folder)) {
+                $response['messages'][] = 'Chapter folder không hợp lệ.';
                 continue;
             }
 
-            $image_path = $image_dir . '/' . $image;
-            $upload_result = upload_to_imgbb($image_path);
-            if (!$upload_result['success']) {
-                throw new Exception('Lỗi upload ảnh ' . $image . ': ' . $upload_result['message']);
+            $chapter_dir = DOWNLOADS_DIR . '/' . $download_folder . '/' . $chapter_folder;
+            if (!is_dir($chapter_dir) || !is_readable($chapter_dir)) {
+                $response['messages'][] = 'Thư mục chapter không tồn tại hoặc không thể đọc: ' . $chapter_dir;
+                continue;
             }
 
-            $image_page = $upload_result['url'];
-            $clean_filename = preg_replace('/[^\x20-\x7E]/', '', basename($image_path));
-            $original_url = 'local:' . $clean_filename;
-
-            if (strlen($original_url) > 65535) {
-                throw new Exception('original_url quá dài: ' . substr($original_url, 0, 100) . '...');
-            }
-
-            if (strlen($image_page) > 512) {
-                throw new Exception('URL ảnh từ ImgBB quá dài: ' . $image_page);
-            }
-
+            // Insert chapter
             $stmt = $conn->prepare("
-                INSERT INTO chapter_images (chapter_id, image_page, original_url, image_order)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO chapters (comic_id, chapter_name, chapter_title, is_backed_up, imgur_album_link)
+                VALUES (?, ?, ?, 1, NULL)
             ");
-            $stmt->bind_param('issi', $chapter_id, $image_page, $original_url, $image_order);
+            $chapter_name = preg_replace('/[^0-9.]/', '', $chapter_folder); // Allow numbers and decimal point
+            $chapter_title = $chapter_folder;
+            $stmt->bind_param('iss', $comic_id, $chapter_name, $chapter_title);
             $stmt->execute();
+            $chapter_id = $conn->insert_id;
             $stmt->close();
 
-            if ($image_order === 1) {
-                $first_image_url = $image_page;
+            // Process images
+            $image_dir = $chapter_dir;
+            $images = scandir($image_dir);
+            $image_order = 1;
+            $image_count = count(array_filter($images, function($item) {
+                return preg_match('/\.(jpg|jpeg|png|gif)$/i', $item);
+            }));
+            $current_progress = 0;
+            $first_image_url = null;
+
+            if ($image_count === 0) {
+                $response['messages'][] = "Không tìm thấy ảnh hợp lệ trong thư mục: $chapter_folder";
+                continue;
             }
 
-            $image_order++;
-            $current_progress++;
+            foreach ($images as $image) {
+                if ($image === '.' || $image === '..' || !preg_match('/\.(jpg|jpeg|png|gif)$/i', $image)) {
+                    continue;
+                }
+
+                $image_path = $image_dir . '/' . $image;
+                $upload_result = upload_to_imgbb($image_path);
+                if (!$upload_result['success']) {
+                    throw new Exception('Lỗi upload ảnh ' . $image . ' trong ' . $chapter_folder . ': ' . $upload_result['message']);
+                }
+
+                $image_page = $upload_result['url'];
+                $clean_filename = preg_replace('/[^\x20-\x7E]/', '', basename($image_path));
+                $original_url = 'local:' . $clean_filename;
+
+                if (strlen($original_url) > 65535) {
+                    throw new Exception('original_url quá dài trong ' . $chapter_folder . ': ' . substr($original_url, 0, 100) . '...');
+                }
+
+                if (strlen($image_page) > 512) {
+                    throw new Exception('URL ảnh từ ImgBB quá dài trong ' . $chapter_folder . ': ' . $image_page);
+                }
+
+                $stmt = $conn->prepare("
+                    INSERT INTO chapter_images (chapter_id, image_page, original_url, image_order)
+                    VALUES (?, ?, ?, ?)
+                ");
+                $stmt->bind_param('issi', $chapter_id, $image_page, $original_url, $image_order);
+                $stmt->execute();
+                $stmt->close();
+
+                if ($image_order === 1) {
+                    $first_image_url = $image_page;
+                }
+
+                $image_order++;
+                $current_progress++;
+            }
+
+            if ($first_image_url) {
+                $stmt = $conn->prepare("UPDATE chapters SET imgur_album_link = ? WHERE id = ?");
+                $stmt->bind_param('si', $first_image_url, $chapter_id);
+                $stmt->execute();
+                $stmt->close();
+            }
+
+            delete_directory($chapter_dir);
+            $response['messages'][] = "Thêm chapter $chapter_folder thành công!";
+            $processed_chapters++;
+            error_log("Processed chapter: $chapter_folder, chapter_id=$chapter_id");
         }
 
-        if ($first_image_url) {
-            $stmt = $conn->prepare("UPDATE chapters SET imgur_album_link = ? WHERE id = ?");
-            $stmt->bind_param('si', $first_image_url, $chapter_id);
-            $stmt->execute();
-            $stmt->close();
+        if ($processed_chapters === 0) {
+            throw new Exception('Không có chapter nào được xử lý thành công.');
         }
 
-        delete_directory($chapter_dir);
-
+        // Update comic's updated_at
         $stmt = $conn->prepare("UPDATE comics SET updated_at = NOW() WHERE id = ?");
         $stmt->bind_param('i', $comic_id);
         $stmt->execute();
@@ -594,10 +621,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         $conn->commit();
         $response['success'] = true;
-        $response['messages'][] = 'Thêm chapter thành công và đã xóa chapter khỏi bộ nhớ!';
+        if ($processed_chapters === $total_chapters) {
+            $response['messages'][] = 'Thêm tất cả chapter thành công và đã xóa các thư mục khỏi bộ nhớ!';
+        } else {
+            $response['messages'][] = "Thêm $processed_chapters/$total_chapters chapter thành công!";
+        }
     } catch (Exception $e) {
         $conn->rollback();
         $response['messages'][] = 'Lỗi: ' . $e->getMessage();
+        error_log("Batch chapter upload error: " . $e->getMessage());
     }
 
     echo json_encode($response);
@@ -735,6 +767,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     echo json_encode($response);
     exit;
 }
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'get_latest_chapter') {
+    ob_clean();
+    header('Content-Type: application/json');
+    $response = ['success' => false, 'latest_chapter' => null, 'message' => ''];
+
+    try {
+        $comic_id = (int)($_POST['comic_id'] ?? 0);
+        if ($comic_id <= 0) {
+            $response['message'] = 'ID truyện không hợp lệ.';
+            echo json_encode($response);
+            exit;
+        }
+
+        $stmt = $conn->prepare("SELECT MAX(chapter_name) as latest_chapter FROM chapters WHERE comic_id = ?");
+        $stmt->bind_param('i', $comic_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $row = $result->fetch_assoc();
+        $stmt->close();
+
+        $response['success'] = true;
+        $response['latest_chapter'] = $row['latest_chapter'] ?? '0';
+    } catch (Exception $e) {
+        $response['message'] = 'Lỗi: ' . $e->getMessage();
+    }
+
+    echo json_encode($response);
+    exit;
+}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -765,6 +827,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         .category-checkboxes { max-height: 200px; overflow-y: auto; padding: 10px; border: 1px solid #dee2e6; }
         .category-checkboxes label { display: block; margin-bottom: 5px; }
         .action-buttons { display: flex; gap: 5px; }
+        #chapter_folder { height: 150px; } /* Adjust height for multiple select */
     </style>
 </head>
 <body class="hold-transition sidebar-mini layout-fixed">
@@ -1093,8 +1156,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             <?php endif; ?>
                         </div>
                         <div class="form-group" id="chapter_selection" style="display: none;">
-                            <label for="chapter_folder">Chọn chapter</label>
-                            <select class="form-control" id="chapter_folder" name="chapter_folder">
+                            <label for="chapter_folder">Chọn chapter (giữ Ctrl để chọn nhiều)</label>
+                            <select class="form-control" id="chapter_folder" name="chapter_folder[]" multiple>
                                 <option value="">Chọn chapter</option>
                             </select>
                         </div>
@@ -1134,7 +1197,7 @@ $(document).ready(function() {
     // Search functionality
     var $table = $('#comicsTable');
     var $tbody = $table.find('tbody');
-    var originalRows = $tbody.find('tr').clone(); // Store original rows
+    var originalRows = $tbody.find('tr').clone();
 
     $('#searchInput').on('input', function() {
         var searchTerm = $(this).val().toLowerCase();
@@ -1189,7 +1252,6 @@ $(document).ready(function() {
                 $('.progress-bar').css('width', '100%').text('100%');
                 setTimeout(function() { $('.progress').hide(); }, 1000);
                 saveButton.prop('disabled', false).html('<i class="fas fa-save"></i> Lưu');
-
                 if (response.success) {
                     $('#crawlOutput').html('<div class="alert alert-success">' + response.messages.join('<br>') + '</div>');
                     setTimeout(function() {
@@ -1212,20 +1274,42 @@ $(document).ready(function() {
 
     $(document).on('click', '.add-chapter-btn', function() {
         var comicId = $(this).data('comic-id');
-        var comicName = $(this).data('comic-name') || $(this).closest('tr').find('td:eq(1)').text().trim();
+        var comicName = $(this).data('comic-name');
+        
+        // Decode comicName to handle special characters
+        comicName = comicName ? decodeURIComponent(comicName) : '';
+        
+        // Debugging
         console.log('Add chapter clicked - comicId:', comicId, 'comicName:', comicName);
+        if (!comicId || !comicName) {
+            alert('Lỗi: Không thể lấy thông tin truyện. Vui lòng thử lại.');
+            console.error('Missing comicId or comicName', { comicId, comicName });
+            return;
+        }
+
+        // Reset form to clear previous data
+        $('#addChapterForm')[0].reset();
+
+        // Set comic ID and name
         $('#chapter_comic_id').val(comicId);
         $('#chapter_comic_name').val(comicName);
+        
+        // Verify field is set
+        console.log('After setting - chapter_comic_name value:', $('#chapter_comic_name').val());
+
+        // Reset other fields
         $('#chapter_download_folder').val('');
+        $('#chapter_folder').empty();
         $('#chapter_selection').hide();
-        $('#chapter_folder').empty().append('<option value="">Chọn chapter</option>');
         $('#file_selection').hide();
         $('#chapter_name_input').hide();
         $('#chapterOutput').html('');
         $('#upload_folder').prop('checked', true);
         $('#folder_selection').show();
+        $('#chapter_files').val('');
+        $('#chapter_name').val('');
 
-        // Lấy số chapter hiện tại từ cơ sở dữ liệu
+        // Fetch latest chapter
         $.ajax({
             url: '<?php echo BASE_URL; ?>includes/admin/stories.php',
             type: 'POST',
@@ -1236,7 +1320,7 @@ $(document).ready(function() {
             dataType: 'json',
             success: function(response) {
                 if (response.success && response.latest_chapter) {
-                    var nextChapter = parseInt(response.latest_chapter) + 1;
+                    var nextChapter = parseFloat(response.latest_chapter) + 1;
                     $('#chapter_name').val('Chapter ' + nextChapter);
                 } else {
                     $('#chapter_name').val('Chapter 1');
@@ -1245,7 +1329,8 @@ $(document).ready(function() {
                     $('#chapter_name_input').show();
                 }
             },
-            error: function() {
+            error: function(xhr, status, error) {
+                console.error('Error fetching latest chapter:', xhr.status, error);
                 $('#chapter_name').val('Chapter 1');
                 if ($('input[name="upload_method"]:checked').val() === 'files') {
                     $('#chapter_name_input').show();
@@ -1261,7 +1346,7 @@ $(document).ready(function() {
             $('#chapter_selection').hide();
             $('#file_selection').hide();
             $('#chapter_name_input').hide();
-            $('#chapter_folder').empty().append('<option value="">Chọn chapter</option>');
+            $('#chapter_folder').empty();
             $('#chapter_files').val('');
             $('#chapter_name').val('');
         } else if (method === 'files') {
@@ -1270,6 +1355,7 @@ $(document).ready(function() {
             $('#file_selection').show();
             $('#chapter_name_input').show();
         }
+        $('#chapterOutput').html('');
     });
 
     $('#chapter_download_folder').on('change', function() {
@@ -1286,7 +1372,6 @@ $(document).ready(function() {
                 success: function(response) {
                     if (response.success) {
                         $('#chapter_folder').empty();
-                        $('#chapter_folder').append('<option value="">Chọn chapter</option>');
                         $.each(response.chapters, function(index, chapter) {
                             $('#chapter_folder').append('<option value="' + chapter + '">' + chapter + '</option>');
                         });
@@ -1296,14 +1381,14 @@ $(document).ready(function() {
                         $('#chapterOutput').html('<div class="alert alert-danger">' + response.message + '</div>');
                     }
                 },
-                error: function() {
+                error: function(xhr, status, error) {
                     $('#chapter_selection').hide();
-                    $('#chapterOutput').html('<div class="alert alert-danger">Lỗi khi lấy danh sách chapter.</div>');
+                    $('#chapterOutput').html('<div class="alert alert-danger">Lỗi khi lấy danh sách chapter: ' + xhr.status + ' ' + error + '</div>');
                 }
             });
         } else {
             $('#chapter_selection').hide();
-            $('#chapter_folder').empty().append('<option value="">Chọn chapter</option>');
+            $('#chapter_folder').empty();
         }
     });
 
@@ -1311,6 +1396,11 @@ $(document).ready(function() {
         e.preventDefault();
         var saveButton = $('#saveChapterButton');
         var uploadMethod = $('input[name="upload_method"]:checked').val();
+
+        if (uploadMethod === 'folder' && ($('#chapter_folder').val() === null || $('#chapter_folder').val().length === 0)) {
+            $('#chapterOutput').html('<div class="alert alert-danger">Vui lòng chọn ít nhất một chapter.</div>');
+            return;
+        }
 
         if (uploadMethod === 'files' && $('#chapter_files')[0].files.length === 0) {
             $('#chapterOutput').html('<div class="alert alert-danger">Vui lòng chọn ít nhất một ảnh.</div>');
@@ -1322,13 +1412,20 @@ $(document).ready(function() {
             return;
         }
 
-        saveButton.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Đang lưu...');
+        saveButton.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Đang xử lý...');
         $('.progress').show();
         $('.progress-bar').css('width', '0%').text('0%');
         $('#chapterOutput').html('');
 
         var formData = new FormData(this);
         formData.append('action', uploadMethod === 'folder' ? 'add_chapter' : 'add_chapter_files');
+
+        console.log('Submitting chapter data:', {
+            comic_id: $('#chapter_comic_id').val(),
+            upload_method: uploadMethod,
+            download_folder: $('#chapter_download_folder').val(),
+            chapter_folders: $('#chapter_folder').val()
+        });
 
         $.ajax({
             url: '<?php echo BASE_URL; ?>includes/admin/stories.php',
@@ -1344,7 +1441,6 @@ $(document).ready(function() {
                 $('.progress-bar').css('width', '100%').text('100%');
                 setTimeout(function() { $('.progress').hide(); }, 1000);
                 saveButton.prop('disabled', false).html('<i class="fas fa-save"></i> Lưu');
-
                 if (response.success) {
                     $('#chapterOutput').html('<div class="alert alert-success">' + response.messages.join('<br>') + '</div>');
                     setTimeout(function() {
@@ -1423,7 +1519,6 @@ $(document).ready(function() {
                 $('.progress-bar').css('width', '100%').text('100%');
                 setTimeout(function() { $('.progress').hide(); }, 1000);
                 saveButton.prop('disabled', false).html('<i class="fas fa-save"></i> Lưu');
-
                 if (response.success) {
                     $('#editOutput').html('<div class="alert alert-success">' + response.messages.join('<br>') + '</div>');
                     setTimeout(function() {
@@ -1469,13 +1564,6 @@ $(document).ready(function() {
                     alert('Lỗi hệ thống khi xóa truyện: ' + xhr.status + ' ' + error);
                 }
             });
-        }
-    });
-
-    // Xử lý AJAX để lấy chapter mới nhất
-    $.ajaxSetup({
-        data: {
-            action: 'get_latest_chapter'
         }
     });
 });

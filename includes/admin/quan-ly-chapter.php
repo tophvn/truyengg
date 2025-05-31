@@ -31,6 +31,8 @@ if ($comic_id > 0) {
     $result = $stmt->get_result();
     if ($result->num_rows > 0) {
         $comic_name = $result->fetch_assoc()['name'];
+    } else {
+        $comic_name = 'Truyện không tồn tại';
     }
     $stmt->close();
 
@@ -50,46 +52,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'edit_chapter'
     $response = ['success' => false, 'messages' => []];
     try {
         $chapter_id = (int)($_POST['chapter_id'] ?? 0);
+        $comic_id = (int)($_POST['comic_id'] ?? 0); // Use POST comic_id
         $chapter_name = trim($_POST['chapter_name'] ?? '');
-        $chapter_title = trim($_POST['chapter_title'] ?? '');
-        $image_urls = isset($_POST['image_urls']) && is_array($_POST['image_urls']) ? array_filter(array_map('trim', $_POST['image_urls'])) : [];
 
-        if ($chapter_id <= 0 || empty($chapter_name) || empty($chapter_title)) {
-            $response['messages'][] = 'ID chapter, tên chương và tiêu đề là bắt buộc.';
+        // Log input values for debugging
+        error_log("Edit chapter attempt: chapter_id=$chapter_id, comic_id=$comic_id, chapter_name=$chapter_name");
+
+        // Validate inputs
+        if ($chapter_id <= 0) {
+            $response['messages'][] = 'ID chapter không hợp lệ.';
+            error_log("Invalid chapter_id: $chapter_id");
+            echo json_encode($response);
+            exit;
+        }
+        if ($comic_id <= 0) {
+            $response['messages'][] = 'ID comic không hợp lệ.';
+            error_log("Invalid comic_id: $comic_id");
+            echo json_encode($response);
+            exit;
+        }
+        if (empty($chapter_name)) {
+            $response['messages'][] = 'Tên số (chỉ số) là bắt buộc.';
+            echo json_encode($response);
+            exit;
+        }
+        // Validate chapter_name format (numbers and optional single decimal point)
+        if (!preg_match('/^\d+(\.\d+)?$/', $chapter_name)) {
+            $response['messages'][] = 'Tên số (chỉ số) chỉ được chứa số và một dấu chấm (ví dụ: 1, 1.2).';
             echo json_encode($response);
             exit;
         }
 
+        // Verify chapter exists
+        $stmt = $conn->prepare("SELECT id FROM chapters WHERE id = ? AND comic_id = ?");
+        $stmt->bind_param('ii', $chapter_id, $comic_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($result->num_rows === 0) {
+            $response['messages'][] = 'Chapter không tồn tại hoặc không thuộc comic này.';
+            error_log("Chapter not found: chapter_id=$chapter_id, comic_id=$comic_id");
+            $stmt->close();
+            echo json_encode($response);
+            exit;
+        }
+        $stmt->close();
+
         $conn->begin_transaction();
 
-        $stmt = $conn->prepare("UPDATE chapters SET chapter_name = ?, chapter_title = ? WHERE id = ? AND comic_id = ?");
-        $stmt->bind_param('ssii', $chapter_name, $chapter_title, $chapter_id, $comic_id);
+        // Update chapter_name only
+        $stmt = $conn->prepare("UPDATE chapters SET chapter_name = ? WHERE id = ? AND comic_id = ?");
+        $stmt->bind_param('sii', $chapter_name, $chapter_id, $comic_id);
         $stmt->execute();
-        $stmt->close();
-
-        $stmt = $conn->prepare("DELETE FROM chapter_images WHERE chapter_id = ?");
-        $stmt->bind_param('i', $chapter_id);
-        $stmt->execute();
-        $stmt->close();
-
-        if (!empty($image_urls)) {
-            $stmt = $conn->prepare("INSERT INTO chapter_images (chapter_id, image_page, image_order) VALUES (?, ?, ?)");
-            foreach ($image_urls as $index => $image_url) {
-                if (!empty($image_url)) {
-                    $image_order = $index + 1;
-                    $stmt->bind_param('isi', $chapter_id, $image_url, $image_order);
-                    $stmt->execute();
-                }
+        if ($stmt->affected_rows === 0) {
+            if ($stmt->error) {
+                throw new Exception('Không thể cập nhật chapter: ' . $stmt->error);
+            } else {
+                $response['messages'][] = 'Không có thay đổi nào được áp dụng cho tên số (chỉ số).';
+                $conn->rollback();
+                echo json_encode($response);
+                $stmt->close();
+                exit;
             }
-            $stmt->close();
         }
+        $stmt->close();
 
         $conn->commit();
         $response['success'] = true;
-        $response['messages'][] = 'Cập nhật chapter thành công!';
+        $response['messages'][] = 'Cập nhật tên số (chỉ số) thành công!';
     } catch (Exception $e) {
         $conn->rollback();
         $response['messages'][] = 'Lỗi: ' . $e->getMessage();
+        error_log("Edit chapter error: " . $e->getMessage() . " | chapter_id: $chapter_id, comic_id: $comic_id, chapter_name: $chapter_name");
     }
     echo json_encode($response);
     exit;
@@ -101,21 +134,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'delete_chapte
     $response = ['success' => false, 'messages' => []];
     try {
         $chapter_id = (int)($_POST['chapter_id'] ?? 0);
-        if ($chapter_id <= 0) {
-            $response['messages'][] = 'ID chapter không hợp lệ.';
+        $comic_id = (int)($_POST['comic_id'] ?? $_GET['comic_id'] ?? 0);
+
+        if ($chapter_id <= 0 || $comic_id <= 0) {
+            $response['messages'][] = 'ID chapter hoặc comic không hợp lệ.';
             echo json_encode($response);
             exit;
         }
 
+        $stmt = $conn->prepare("SELECT id FROM comics WHERE id = ?");
+        $stmt->bind_param('i', $comic_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($result->num_rows === 0) {
+            $response['messages'][] = 'Comic không tồn tại.';
+            $stmt->close();
+            echo json_encode($response);
+            exit;
+        }
+        $stmt->close();
+
         $conn->begin_transaction();
+
+        $stmt = $conn->prepare("SELECT id FROM chapters WHERE id = ? AND comic_id = ?");
+        $stmt->bind_param('ii', $chapter_id, $comic_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($result->num_rows === 0) {
+            $response['messages'][] = 'Chapter không tồn tại hoặc không thuộc comic này.';
+            $stmt->close();
+            echo json_encode($response);
+            exit;
+        }
+        $stmt->close();
+
         $stmt = $conn->prepare("DELETE FROM chapter_images WHERE chapter_id = ?");
         $stmt->bind_param('i', $chapter_id);
         $stmt->execute();
+        if ($stmt->error) {
+            throw new Exception('Không thể xóa ảnh chapter: ' . $stmt->error);
+        }
         $stmt->close();
 
         $stmt = $conn->prepare("DELETE FROM chapters WHERE id = ? AND comic_id = ?");
         $stmt->bind_param('ii', $chapter_id, $comic_id);
         $stmt->execute();
+        if ($stmt->affected_rows === 0 && $stmt->error) {
+            throw new Exception('Không thể xóa chapter: ' . $stmt->error);
+        }
         $stmt->close();
 
         $conn->commit();
@@ -124,6 +190,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'delete_chapte
     } catch (Exception $e) {
         $conn->rollback();
         $response['messages'][] = 'Lỗi: ' . $e->getMessage();
+        error_log("Delete chapter error: " . $e->getMessage());
     }
     echo json_encode($response);
     exit;
@@ -153,6 +220,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'get_chapter_i
         $response['image_urls'] = $image_urls;
     } catch (Exception $e) {
         $response['messages'][] = 'Lỗi: ' . $e->getMessage();
+        error_log("Get chapter images error: " . $e->getMessage());
     }
     echo json_encode($response);
     exit;
@@ -207,6 +275,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'upload_image'
         }
     } catch (Exception $e) {
         $response['message'] = 'Lỗi: ' . $e->getMessage();
+        error_log("Image upload error: " . $e->getMessage());
     }
     echo json_encode($response);
     exit;
@@ -222,6 +291,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'upload_image'
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700">
     <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <style>
         .main-header { background-color: #ffffff; border-bottom: 1px solid #dee2e6; }
         .content-wrapper { background-color: #f4f6f9; }
@@ -287,9 +357,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'upload_image'
                                 <h3 class="card-title">Danh sách Chapters</h3>
                             </div>
                             <div class="card-body">
-                                <?php if ($comic_id <= 0 || empty($comic_name)): ?>
+                                <?php if ($comic_id <= 0 || $comic_name === 'Truyện không tồn tại'): ?>
                                     <div class="alert alert-danger">Không tìm thấy truyện.</div>
                                 <?php else: ?>
+                                    <input type="hidden" id="comic_id" value="<?php echo $comic_id; ?>">
                                     <table id="chaptersTable" class="table table-bordered table-hover">
                                         <thead>
                                             <tr>
@@ -320,12 +391,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'upload_image'
                                                                 data-toggle="modal" data-target="#editChapterModal"
                                                                 data-chapter-id="<?php echo $chapter['id']; ?>"
                                                                 data-chapter-name="<?php echo htmlspecialchars($chapter['chapter_name']); ?>"
-                                                                data-chapter-title="<?php echo htmlspecialchars($chapter['chapter_title']); ?>">
+                                                                data-chapter-title="<?php echo htmlspecialchars($chapter['chapter_title']); ?>"
+                                                                data-comic-id="<?php echo $comic_id; ?>">
                                                             <i class="fas fa-edit"></i> Sửa
                                                         </button>
                                                         <button type="button" class="btn btn-sm btn-danger delete-chapter-btn"
                                                                 data-chapter-id="<?php echo $chapter['id']; ?>"
-                                                                data-chapter-title="<?php echo htmlspecialchars($chapter['chapter_title']); ?>">
+                                                                data-chapter-title="<?php echo htmlspecialchars($chapter['chapter_title']); ?>"
+                                                                data-comic-id="<?php echo $comic_id; ?>">
                                                             <i class="fas fa-trash"></i> Xóa
                                                         </button>
                                                     </div></td>
@@ -351,13 +424,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'upload_image'
                 <div class="modal-body">
                     <form id="editChapterForm">
                         <input type="hidden" id="edit_chapter_id" name="chapter_id">
+                        <input type="hidden" id="edit_comic_id" name="comic_id">
                         <div class="form-group">
                             <label for="edit_chapter_name">Tên số (chỉ số)</label>
-                            <input type="text" class="form-control" id="edit_chapter_name" name="chapter_name" required>
+                            <input type="text" class="form-control" id="edit_chapter_name" name="chapter_name" required pattern="^\d+(\.\d+)?$" title="Chỉ được nhập số và một dấu chấm (ví dụ: 1, 1.2)">
                         </div>
                         <div class="form-group">
                             <label for="edit_chapter_title">Tiêu đề</label>
-                            <input type="text" class="form-control" id="edit_chapter_title" name="chapter_title" required>
+                            <input type="text" class="form-control" id="edit_chapter_title" name="chapter_title" readonly>
                         </div>
                         <div class="form-group">
                             <label>Danh sách URL ảnh</label>
@@ -389,17 +463,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'upload_image'
 <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.js"></script>
 <script>
 $(document).ready(function() {
     $(document).on('click', '.edit-chapter-btn', function() {
         const chapterId = $(this).data('chapter-id');
         const chapterName = $(this).data('chapter-name');
         const chapterTitle = $(this).data('chapter-title');
+        const comicId = $(this).data('comic-id');
 
         $('#edit_chapter_id').val(chapterId);
+        $('#edit_comic_id').val(comicId);
         $('#edit_chapter_name').val(chapterName);
         $('#edit_chapter_title').val(chapterTitle);
         $('#chapterOutput').empty();
+
+        console.log('Opening edit modal: chapter_id=', chapterId, 'comic_id=', comicId);
 
         $.ajax({
             url: window.baseUrl + 'includes/admin/quan-ly-chapter.php',
@@ -438,7 +517,7 @@ $(document).ready(function() {
         const entry = $(`
             <div class="image-entry" data-index="${index}">
                 <i class="fas fa-grip-vertical drag-handle"></i>
-                <input type="text" class="form-control" name="image_urls[]" value="${url}" placeholder="URL ảnh từ Imgur hoặc ImgBB">
+                <input type="text" class="form-control" name="image_urls[]" value="${url}" placeholder="URL ảnh từ Imgur hoặc ImgBB" readonly>
                 <i class="fas fa-trash remove-image-btn"></i>
             </div>
         `);
@@ -518,30 +597,47 @@ $(document).ready(function() {
             });
         });
 
-        // Reset file input
         $(this).val('');
     });
 
     $('#editChapterForm').on('submit', function(e) {
         e.preventDefault();
+
+        // Client-side validation for chapter_name
+        const chapterName = $('#edit_chapter_name').val().trim();
+        const chapterNameRegex = /^\d+(\.\d+)?$/;
+        if (!chapterNameRegex.test(chapterName)) {
+            $('#chapterOutput').html(`<div class="alert alert-danger">Tên số (chỉ số) chỉ được chứa số và một dấu chấm (ví dụ: 1, 1.2).</div>`);
+            return;
+        }
+
+        const chapterId = $('#edit_chapter_id').val();
+        const comicId = $('#edit_comic_id').val();
+        console.log('Submitting edit: chapter_id=', chapterId, 'comic_id=', comicId, 'chapter_name=', chapterName);
+
         const saveButton = $('#saveEditChapterButton');
         saveButton.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Đang xử lý...');
         $('.progress').show().find('.progress-bar').css('width', '0%').text('0%');
         $('#chapterOutput').empty();
-        const formData = new FormData(this);
+
+        const formData = new FormData();
         formData.append('action', 'edit_chapter');
+        formData.append('chapter_id', chapterId);
+        formData.append('comic_id', comicId);
+        formData.append('chapter_name', chapterName);
+
         $.ajax({
             url: window.baseUrl + 'includes/admin/quan-ly-chapter.php',
             type: 'POST',
             data: formData,
             contentType: false,
-            processData: !1,
+            processData: false,
             dataType: 'json',
-            beforeSend: () => $('.progress-bar').css('width', '10%').text('OK'),
+            beforeSend: () => $('.progress-bar').css('width', '10%').text('10%'),
             success: response => {
                 $('.progress-bar').css('width', '100%').text('100%');
                 setTimeout(() => $('.progress').hide(), 1000);
-                saveButton.prop('disabled', !1).html('<i class="fas fa-save"></i> Lưu');
+                saveButton.prop('disabled', false).html('<i class="fas fa-save"></i> Lưu');
                 $('#chapterOutput').html(`<div class="alert alert-${response.success ? 'success' : 'danger'}">${response.messages.join('<br>')}</div>`);
                 if (response.success) {
                     setTimeout(() => {
@@ -553,32 +649,69 @@ $(document).ready(function() {
             },
             error: (xhr, status, error) => {
                 $('.progress').hide();
-                saveButton.prop('disabled', !1).html('<i class="fas fa-save"></i> Lưu');
+                saveButton.prop('disabled', false).html('<i class="fas fa-save"></i> Lưu');
                 $('#chapterOutput').html(`<div class="alert alert-danger">Lỗi: ${xhr.status} ${error}</div>`);
                 $('.progress-bar').css('width', '0%').text('0%');
+                console.error('Edit chapter AJAX error:', status, error);
             }
         });
     });
 
     $(document).on('click', '.delete-chapter-btn', function() {
-        const chapter_id = $(this).data('chapter-id');
-        const chapter_title = $(this).data('chapter-title');
-        if (confirm(`Bạn có chắc chắn muốn xóa chapter "${chapter_title}"?`)) {
-            $.ajax({
-                url: window.baseUrl + 'includes/admin/quan-ly-chapter.php',
-                type: 'POST',
-                data: { action: 'delete_chapter', chapter_id: chapter_id },
-                dataType: 'json',
-                success: response => {
-                    alert(response.success ? 'Xóa chapter thành công!' : `Lỗi: ${response.messages.join(', ')}`);
-                    if (response.success) location.reload();
-                },
-                error: (xhr, status, error) => alert(`Lỗi hệ thống: ${xhr.status} ${error}`)
-            });
-        }
+        const chapterId = $(this).data('chapter-id');
+        const chapterTitle = $(this).data('chapter-title');
+        const comicId = $(this).data('comic-id');
+        
+        Swal.fire({
+            title: 'Xác nhận xóa',
+            text: `Bạn có chắc chắn muốn xóa chapter "${chapterTitle}"? Hành động này không thể hoàn tác.`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Xóa',
+            cancelButtonText: 'Hủy'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                $.ajax({
+                    url: window.baseUrl + 'includes/admin/quan-ly-chapter.php',
+                    type: 'POST',
+                    data: { 
+                        action: 'delete_chapter', 
+                        chapter_id: chapterId,
+                        comic_id: comicId
+                    },
+                    dataType: 'json',
+                    beforeSend: () => {
+                        $(this).prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Đang xóa...');
+                    },
+                    success: function(response) {
+                        $(this).prop('disabled', false).html('<i class="fas fa-trash"></i> Xóa');
+                        Swal.fire({
+                            title: response.success ? 'Thành công!' : 'Lỗi!',
+                            text: response.success ? 'Xóa chapter thành công!' : response.messages.join(', '),
+                            icon: response.success ? 'success' : 'error',
+                            confirmButtonText: 'OK'
+                        }).then(() => {
+                            if (response.success) {
+                                location.reload();
+                            }
+                        });
+                    },
+                    error: function(xhr, status, error) {
+                        $(this).prop('disabled', false).html('<i class="fas fa-trash"></i> Xóa');
+                        Swal.fire({
+                            title: 'Lỗi hệ thống',
+                            text: `Lỗi: ${xhr.status} ${error}`,
+                            icon: 'error',
+                            confirmButtonText: 'OK'
+                        });
+                    }
+                });
+            }
+        });
     });
 });
 </script>
 </body>
 </html>
-
