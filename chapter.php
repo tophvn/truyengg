@@ -36,6 +36,9 @@ $api = new OTruyenAPI();
 $comic = null;
 $comic_db_id = null;
 $comic_id = null;
+$comic_name = null;
+$comic_slug = null;
+$updated_at = null;
 $chapters = [];
 $chapter_data = null;
 $chapter_images = [];
@@ -139,33 +142,14 @@ if (!$comic) {
 // Lấy danh sách chương
 if ($comic_db_id && !$is_api_source) {
     try {
-        $stmt = $conn->prepare("
-            SELECT id, chapter_name, chapter_title, chapter_api_data
-            FROM chapters
-            WHERE comic_id = ? AND chapter_name = ?
-        ");
-        $stmt->bind_param("is", $comic_db_id, $chapter_number);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        if ($row = $result->fetch_assoc()) {
-            $chapter_data = [
-                'chapter_name' => $row['chapter_name'],
-                'chapter_title' => $row['chapter_title'],
-                'chapter_api_data' => $row['chapter_api_data']
-            ];
-            $chapter_id = $row['id'];
-            $chapters[] = $chapter_data;
-        }
-        $stmt->close();
-
-        // Lấy các chương khác
+        // Lấy toàn bộ danh sách chương theo thứ tự tăng dần
         $stmt = $conn->prepare("
             SELECT chapter_name, chapter_title, chapter_api_data
             FROM chapters
-            WHERE comic_id = ? AND chapter_name != ?
+            WHERE comic_id = ?
             ORDER BY CAST(chapter_name AS UNSIGNED) ASC
         ");
-        $stmt->bind_param("is", $comic_db_id, $chapter_number);
+        $stmt->bind_param("i", $comic_db_id);
         $stmt->execute();
         $result = $stmt->get_result();
         while ($row = $result->fetch_assoc()) {
@@ -174,6 +158,14 @@ if ($comic_db_id && !$is_api_source) {
                 'chapter_title' => $row['chapter_title'],
                 'chapter_api_data' => $row['chapter_api_data']
             ];
+            // Xác định chương hiện tại
+            if ($row['chapter_name'] === $chapter_number) {
+                $chapter_data = [
+                    'chapter_name' => $row['chapter_name'],
+                    'chapter_title' => $row['chapter_title'],
+                    'chapter_api_data' => $row['chapter_api_data']
+                ];
+            }
         }
         $stmt->close();
     } catch (Exception $e) {

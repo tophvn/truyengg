@@ -85,7 +85,11 @@ $(document).ready(function() {
                         },
                         cache: false
                     }).done(function(msg) {
-                        $resultList.html(msg);
+                        if (msg.includes('404') || msg.includes('Không tìm thấy') || msg.length < 50) {
+                            $resultList.html('<li>Không tìm thấy kết quả</li>');
+                        } else {
+                            $resultList.html(msg);
+                        }
                         $('.lazy').lazy({
                             effect: 'fadeIn',
                             effectTime: 300,

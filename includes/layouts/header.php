@@ -1013,7 +1013,7 @@ $google_login_url = $google_client->createAuthUrl();
                         <input type="password" name="password" placeholder="Mật Khẩu" class="txt_cm" id="password_login" required>
                     </div>
                     <div class="mb-3">
-                        <div class="cf-turnstile" data-sitekey="0x4AAAAAABeu2BlY4OucEEOI"></div> <!-- thay sitekey Cloudflare ở đây -->
+                        <div class="cf-turnstile" data-sitekey="0x4AAAAAABeu2BlY4OucEEOI"></div>
                     </div>
                     <div class="mb-4">
                         <button type="submit" class="btn_login button_login">Đăng Nhập</button>
