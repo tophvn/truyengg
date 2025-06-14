@@ -1,6 +1,6 @@
 # TruyenGG - Nền tảng đọc truyện trực tuyến
 
-Chào mừng bạn đến với **TruyenGG**, một ứng dụng web đọc truyện mạnh mẽ với giao diện thân thiện, hỗ trợ chế độ sáng/tối và tích hợp các tính năng quản lý nội dung, người dùng. Được lấy cảm hứng từ [truyengg.com](https://truyengg.com/), TruyenGG mang đến trải nghiệm đọc truyện mượt mà với khả năng tích hợp API bên ngoài để lấy nội dung và lưu trữ hình ảnh.
+Chào mừng bạn đến với **TruyenGG**, một ứng dụng web đọc truyện mạnh mẽ với giao diện thân thiện, hỗ trợ chế độ sáng/tối và tích hợp các tính năng quản lý nội dung, người dùng. TruyenGG mang đến trải nghiệm đọc truyện mượt mà với khả năng tích hợp API bên ngoài để lấy nội dung và lưu trữ hình ảnh.
 
 ## Tính năng
 
@@ -9,7 +9,7 @@ Chào mừng bạn đến với **TruyenGG**, một ứng dụng web đọc truy
 - **Xác thực người dùng**: Đăng ký, đăng nhập, khôi phục mật khẩu và đăng nhập bằng Google.
 - **Quản lý nội dung**: Tự động crawl truyện từ [TruyenQQ](https://truyenqq.com/) hoặc thêm, sửa, xóa truyện và chương thủ công.
 - **Quản lý người dùng**: Bảng quản trị cho phép quản lý tài khoản, phân quyền (admin, user, nhóm dịch).
-- **Giao diện**: Hỗ trợ chế độ sáng/tối, thiết kế tương tự ~90% [truyengg.com](https://truyengg.com/).
+- **Giao diện**: Hỗ trợ chế độ sáng/tối, thiết kế hiện đại và thân thiện với người dùng.
 - **Tính năng nâng cao**: Tìm kiếm theo thể loại, xem top truyện tháng, quản lý thông tin cá nhân.
 
 Video hướng dẫn: https://youtu.be/v7DEGN3ZVsg?si=ABQ8Dv0iLTzvBnbI
