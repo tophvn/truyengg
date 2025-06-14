@@ -3442,3 +3442,136 @@ body.active {
     padding: 8px 0;
     opacity: 1 !important;
 }
+
+/*-------------------------------------*/
+/*-------------------------------------*/
+
+
+
+.dark-style {
+    background-color: #1a1a1a; /* Rất tối */
+    color: #f0f0f0; /* Màu chữ sáng */
+}
+
+.dark-style .container-background {
+    background-color: #2e2e2e; /* Nền container tối hơn */
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.7);
+}
+
+.dark-style .detail_acc {
+    color: #f0f0f0;
+}
+
+.dark-style .nav-tabs {
+    border-bottom-color: #3a3a3a;
+}
+
+.dark-style .nav-tabs .nav-link {
+    color: #b0b0b0;
+    border-color: transparent;
+}
+
+.dark-style .nav-tabs .nav-link:hover,
+.dark-style .nav-tabs .nav-link.active {
+    color: #f0f0f0;
+    background-color: #3a3a3a;
+    border-color: #3a3a3a;
+}
+
+.dark-style .card {
+    background-color: #383838; /* Nền card tối hơn */
+    color: #f0f0f0;
+    border-color: #3a3a3a;
+}
+
+.dark-style .card-header {
+    background-color: #2a2a2a !important; /* Nền header card rất tối */
+    color: #f0f0f0;
+    border-bottom-color: #3a3a3a;
+}
+
+.dark-style .form-control {
+    background-color: #2e2e2e; /* Nền input tối hơn */
+    color: #f0f0f0;
+    border-color: #3a3a3a;
+}
+
+.dark-style .form-control::placeholder {
+    color: #b0b0b0;
+}
+
+.dark-style .input-group-text {
+    background-color: #3a3a3a;
+    color: #f0f0f0;
+    border-color: #3a3a3a;
+}
+
+.dark-style .custom-control-label {
+    color: #f0f0f0;
+}
+
+.dark-style .btn-primary {
+    background-color: #007bff;
+    border-color: #007bff;
+    color: #fff;
+}
+
+.dark-style .btn-primary:hover {
+    background-color: #0056b3;
+    border-color: #0056b3;
+}
+
+.dark-style .btn-success {
+    background-color: #28a745;
+    border-color: #28a745;
+    color: #fff;
+}
+
+.dark-style .btn-success:hover {
+    background-color: #218838;
+    border-color: #218838;
+}
+
+.dark-style .alert-danger {
+    background-color: #dc3545;
+    color: #fff;
+    border-color: #bd2130;
+}
+
+.dark-style .alert-info {
+    background-color: #17a2b8;
+    color: #fff;
+    border-color: #117a8b;
+}
+
+.dark-style .alert-warning {
+    background-color: #ffc107;
+    color: #212529;
+    border-color: #d39e00;
+}
+
+.dark-style .table {
+    color: #f0f0f0;
+}
+
+.dark-style .table-striped tbody tr:nth-of-type(odd) {
+    background-color: rgba(255, 255, 255, 0.05); /* Sáng hơn một chút để phân biệt hàng */
+}
+
+.dark-style .table thead th {
+    border-bottom-color: #3a3a3a;
+}
+
+.dark-style .table td,
+.dark-style .table th {
+    border-top-color: #3a3a3a;
+}
+
+/* Adjustments for images in dark mode radio buttons */
+.dark-style .custom-control-label img {
+    filter: brightness(0.8) contrast(1.2);
+}
+
+
+/*-------------------------------------*/
+/*-----------DARK MODE CSS-------------*/

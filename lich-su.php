@@ -76,13 +76,14 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 // Phân trang
-$comics_per_page = 24;
+$comics_per_page = 24; // Đồng bộ với trang Theo Dõi
 $current_page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
 $offset = ($current_page - 1) * $comics_per_page;
 
 // Lấy danh sách lịch sử đọc
 try {
     $user_id = (int)$_SESSION['user_id'];
+    $api = new OTruyenAPI();
 
     // Đếm tổng số truyện
     $stmt = $conn->prepare("
@@ -124,72 +125,30 @@ try {
 ?>
 
 <!DOCTYPE html>
-<html lang="vi" translate="no">
+<html lang="vi">
 <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <meta name="google" content="notranslate">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Lịch Sử Đọc - TruyenGG</title>
-    <link href="https://st.truyengg.net/template/frontend/styles/style.css?v=1.9.4" type="text/css" rel="stylesheet">
-    <link href="https://st.truyengg.net/template/frontend/styles/dark_style.css?v=1.3.4" type="text/css" rel="stylesheet">
-    <link href="https://st.truyengg.net/template/frontend/icon/css/font-awesome.min.css?v=1.2.3" type="text/css" rel="stylesheet">
+    <link href="https://st.truyengg.net/template/frontend/styles/style.css?v=1.9.4" rel="stylesheet">
+    <link href="https://st.truyengg.net/template/frontend/styles/dark_style.css?v=1.3.4" rel="stylesheet">
+    <link href="https://st.truyengg.net/template/frontend/icon/css/font-awesome.min.css?v=1.2.3" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
-    <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=6.0, user-scalable=yes" />
+    <script src="assets/js/main.js" type="text/javascript"></script>
     <style>
-        .error-container {
+        .warning-list {
+            width: 100%;
             text-align: center;
-            padding: 50px;
-            background-color: #2c2f33;
+            padding: 20px;
+            background: #2c2f33;
             color: #ffc107;
             border: 2px solid #007bff;
-            border-radius: 8px;
-            margin: 20px auto;
-            max-width: 600px;
+            border-radius: 5px;
+            margin-bottom: 20px;
             font-weight: 600;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
-        }
-        .error-container p {
-            font-size: 18px;
-            margin-bottom: 20px;
-        }
-        .error-container a {
-            color: #ffffff;
-            background-color: #007bff;
-            padding: 10px 20px;
-            border-radius: 5px;
-            text-decoration: none;
-            font-weight: bold;
-        }
-        .error-container a:hover {
-            background-color: #0056b3;
-        }
-        .list_item_home {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-        }
-        .item_home {
-            flex: 0 0 calc(16.666% - 12.5px);
-            max-width: calc(16.666% - 12.5px);
-            text-align: center;
-        }
-        @media (max-width: 991px) {
-            .item_home {
-                flex: 0 0 calc(25% - 11.25px);
-                max-width: calc(25% - 11.25px);
-            }
-        }
-        @media (max-width: 767px) {
-            .item_home {
-                flex: 0 0 calc(50% - 7.5px);
-                max-width: calc(50% - 7.5px);
-            }
-        }
-        @media (max-width: 575px) {
-            .item_home {
-                flex: 0 0 calc(50% - 7.5px);
-                max-width: calc(50% - 7.5px);
-            }
         }
         .image-cover {
             position: relative;
@@ -230,18 +189,42 @@ try {
             font-size: 12px;
             border-radius: 3px;
         }
+        .type-label {
+            padding: 3px 6px;
+            font-size: 12px;
+            color: #fff;
+            border-radius: 3px;
+            text-transform: uppercase;
+        }
+        .type-label.full {
+            background-color: #28a745;
+        }
+        .type-label.hot {
+            background-color: #FF5722;
+        }
+        .bottom-notice {
+            position: absolute;
+            bottom: 5px;
+            right: 5px;
+        }
+        .rate-star {
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 3px 6px;
+            font-size: 12px;
+            border-radius: 3px;
+        }
         .book_name {
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
+            display: block;
+            margin: 5px 0;
+            height: 22px;
+            line-height: 22px;
             overflow: hidden;
             text-overflow: ellipsis;
-            margin-bottom: 5px;
-            color: #ffc107;
+            white-space: nowrap;
+            color: #333;
             text-decoration: none;
             text-align: center;
-            font-size: 16px;
-            font-weight: 600;
         }
         .book_name:hover {
             color: #007bff;
@@ -251,8 +234,6 @@ try {
         }
         .item_home > div:last-child a {
             text-decoration: none;
-            color: #ffffff;
-            font-size: 14px;
         }
         .item_home > div:last-child a:hover {
             color: #007bff;
@@ -264,21 +245,13 @@ try {
             cursor: pointer;
             z-index: 10;
         }
-        .delete-btn {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 24px;
-            height: 24px;
-            background-color: #dc3545;
-            color: #fff;
-            font-size: 16px;
-            font-weight: bold;
-            border-radius: 50%;
-            transition: background-color 0.2s;
+        .remove-history i {
+            font-size: 20px;
+            color: #dc3545;
+            transition: color 0.2s;
         }
-        .delete-btn:hover {
-            background-color: #a71d2a;
+        .remove-history:hover i {
+            color: #a71d2a;
         }
         .has-text-centered {
             text-align: center;
@@ -307,87 +280,74 @@ try {
     </style>
 </head>
 <body class="dark-style">
-    <div class="background-black container-background-manga">
-        <div class="container">
-            <div class="box">
-                <ol class="breadcrumb" itemscope itemtype="http://schema.org/BreadcrumbList">
-                    <li itemprop="itemListElement" itemscope itemtype="http://schema.org/ListItem" class="breadcrumb-item">
-                        <a itemprop="item" href="<?php echo BASE_URL; ?>">
-                            <span itemprop="name">Trang Chủ</span>
-                        </a>
-                        <meta itemprop="position" content="1" />
-                    </li>
-                    <li itemprop="itemListElement" itemscope itemtype="http://schema.org/ListItem" class="breadcrumb-item active">
-                        <span itemprop="name">Lịch Sử Đọc</span>
-                        <meta itemprop="position" content="2" />
-                    </li>
-                </ol>
-                <div class="title-detail">
-                    <h1><i class="bi bi-clock-history"></i> Lịch Sử Đọc</h1>
-                </div>
+    <div class="container container-background">
+        <section>
+            <div class="d-flex mb15">
+                <a href="<?php echo HISTORY_URL; ?>" class="title_cate mr-auto"><i class="bi bi-clock-history"></i> Lịch Sử Đọc</a>
             </div>
-            <div class="content_detail">
+            <div class="row list_item_home">
                 <?php if (isset($error_message)): ?>
-                    <div class="error-container">
-                        <p><?php echo htmlspecialchars($error_message); ?></p>
-                        <p><a href="<?php echo BASE_URL; ?>">Quay lại trang chủ</a></p>
-                    </div>
+                    <div class="warning-list"><?php echo htmlspecialchars($error_message); ?></div>
                 <?php elseif (empty($reading_history)): ?>
-                    <div class="error-container">
-                        <p>Bạn chưa đọc truyện nào!</p>
-                        <p><a href="<?php echo BASE_URL; ?>">Quay lại trang chủ</a></p>
-                    </div>
+                    <div class="warning-list">Bạn chưa đọc truyện nào!</div>
                 <?php else: ?>
-                    <div class="list_item_home">
-                        <?php foreach ($reading_history as $history): ?>
-                            <?php
-                            $chapter_name = $history['chapter_name'] ?? 'N/A';
-                            $time_ago = timeAgo($history['last_read_at']);
-                            $name = $history['name'] ?? 'Truyện không xác định';
-                            $slug = $history['slug'] ?? '#';
-                            $thumb_url = $history['thumb_url'] ?? 'https://st.truyengg.net/template/frontend/img/placeholder.jpg';
-                            ?>
-                            <div class="item_home">
-                                <div class="image-cover">
-                                    <span class="remove-history" title="Xóa Lịch Sử" data-id="<?php echo htmlspecialchars($history['comic_id']); ?>">
-                                        <span class="delete-btn">X</span>
-                                    </span>
-                                    <a href="<?php echo COMIC_DETAIL_URL; ?>?slug=<?php echo htmlspecialchars($slug); ?>" 
-                                       class="thumbblock thumb140x195">
-                                        <img data-src="<?php echo htmlspecialchars($thumb_url); ?>" 
-                                             alt="<?php echo htmlspecialchars($name); ?>" 
-                                             class="lazy-image" 
-                                             style="width: 140px; height: 195px; object-fit: cover;"
-                                             src="https://st.truyengg.net/template/frontend/img/loading.jpg"
-                                             onerror="this.src='https://st.truyengg.net/template/frontend/img/placeholder.jpg';"/>
-                                    </a>
-                                    <div class="top-notice">
-                                        <span class="time-ago"><?php echo $time_ago; ?></span>
-                                    </div>
-                                </div>
-                                <a href="<?php echo COMIC_DETAIL_URL; ?>?slug=<?php echo htmlspecialchars($slug); ?>" 
-                                   class="book_name" 
-                                   title="<?php echo htmlspecialchars($name); ?>">
-                                    <?php echo htmlspecialchars($name); ?>
+                    <?php foreach ($reading_history as $history): ?>
+                        <?php
+                        $chapter_name = $history['chapter_name'] ?? 'N/A';
+                        $chapter_count = is_numeric($chapter_name) ? (int)$chapter_name : 0;
+                        $tag = $api->getTag($chapter_count);
+                        if ($tag !== 'FULL') {
+                            $tag = null;
+                        }
+                        $time_ago = timeAgo($history['last_read_at']);
+                        $name = $history['name'] ?? 'Truyện không xác định';
+                        $slug = $history['slug'] ?? '#';
+                        $thumb_url = $history['thumb_url'] ?? 'https://st.truyengg.net/template/frontend/img/placeholder.jpg';
+                        ?>
+                        <div class="col-lg-2 col-md-4 col-sm-6 col-6 item_home">
+                            <div class="image-cover">
+                                <span class="remove-history" title="Xóa Lịch Sử" data-id="<?php echo htmlspecialchars($history['comic_id']); ?>">
+                                    <i class="bi bi-x-circle-fill"></i>
+                                </span>
+                                <a href="<?php echo COMIC_DETAIL_URL; ?>?slug=<?php echo htmlspecialchars($slug); ?>" class="thumbblock thumb140x195">
+                                    <img data-src="<?php echo htmlspecialchars($thumb_url); ?>" 
+                                         alt="<?php echo htmlspecialchars($name); ?>" 
+                                         class="lazy-image" 
+                                         style="width: 140px; height: 195px; object-fit: cover;"
+                                         src="https://st.truyengg.net/template/frontend/img/loading.jpg"
+                                         onerror="this.src='https://st.truyengg.net/template/frontend/img/placeholder.jpg';"/>
                                 </a>
-                                <div>
-                                    <a href="<?php echo CHAPTER_URL; ?>?slug=<?php echo htmlspecialchars($slug); ?>&chapter=<?php echo htmlspecialchars($chapter_name); ?>" 
-                                       title="Chương <?php echo htmlspecialchars($chapter_name); ?>">
-                                        Đọc Tiếp: <?php echo htmlspecialchars($chapter_name); ?>
-                                    </a>
+                                <div class="top-notice">
+                                    <span class="time-ago"><?php echo $time_ago; ?></span>
+                                    <?php if ($tag): ?>
+                                        <span class="type-label <?php echo strtolower($tag); ?>"><?php echo $tag; ?></span>
+                                    <?php endif; ?>
                                 </div>
+                                <div class="bottom-notice"><span class="rate-star"><i class="bi bi-star-fill"></i> 3.2</span></div>
                             </div>
-                        <?php endforeach; ?>
-                    </div>
-                    <?php if ($total_pages > 1 && $current_page < $total_pages): ?>
-                        <div class="has-text-centered">
-                            <a href="<?php echo HISTORY_URL; ?>?page=<?php echo $current_page + 1; ?>" 
-                               class="view view-more-btn">Xem Thêm</a>
+                            <a href="<?php echo COMIC_DETAIL_URL; ?>?slug=<?php echo htmlspecialchars($slug); ?>" 
+                               class="fs16 txt_oneline book_name" 
+                               title="<?php echo htmlspecialchars($name); ?>">
+                                <?php echo htmlspecialchars($name); ?>
+                            </a>
+                            <div>
+                                <a href="<?php echo CHAPTER_URL; ?>?slug=<?php echo htmlspecialchars($slug); ?>&chapter=<?php echo htmlspecialchars($chapter_name); ?>" 
+                                   class="fs14 cl99" 
+                                   title="Chương <?php echo htmlspecialchars($chapter_name); ?>">
+                                    Đọc Tiếp: <?php echo htmlspecialchars($chapter_name); ?>
+                                </a>
+                            </div>
                         </div>
-                    <?php endif; ?>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+                <?php if (!isset($error_message) && $total_pages > 1 && $current_page < $total_pages): ?>
+                    <div class="has-text-centered">
+                        <a href="<?php echo HISTORY_URL; ?>?page=<?php echo $current_page + 1; ?>" 
+                           class="view view-more-btn">Xem Thêm</a>
+                    </div>
                 <?php endif; ?>
             </div>
-        </div>
+        </section>
     </div>
 
     <a id="back-to-top">
@@ -429,27 +389,17 @@ try {
                         dataType: 'json',
                         success: function(response) {
                             if (response.success) {
-                                item.fadeOut(300, function() {
-                                    $(this).remove();
-                                    showToast('Đã xóa lịch sử đọc!', true);
-                                    if ($('.list_item_home .item_home').length === 0) {
-                                        $('.list_item_home').html(
-                                            '<div class="error-container">' +
-                                            '<p>Bạn chưa đọc truyện nào!</p>' +
-                                            '<p><a href="<?php echo BASE_URL; ?>">Quay lại trang chủ</a></p>' +
-                                            '</div>'
-                                        );
-                                        <?php if ($current_page > 1): ?>
-                                            window.location.href = '<?php echo HISTORY_URL; ?>?page=<?php echo $current_page - 1; ?>';
-                                        <?php endif; ?>
-                                    }
-                                });
+                                item.remove();
+                                showToast('Đã xóa lịch sử đọc!', true);
+                                if ($('.list_item_home .item_home').length === 0) {
+                                    $('.list_item_home').prepend('<div class="warning-list">Bạn chưa đọc truyện nào!</div>');
+                                }
                             } else {
                                 showToast(response.message, false);
                             }
                         },
                         error: function(xhr, status, error) {
-                            showToast('Lỗi kết nối máy chủ: ' + error, false);
+                            showToast('Lỗi kết nối máy chủ. Vui lòng thử lại.', false);
                         }
                     });
                 }
@@ -464,18 +414,29 @@ try {
                     if (entry.isIntersecting) {
                         const img = entry.target;
                         const src = img.dataset.src;
-                        img.src = src;
-                        img.onload = () => {
-                            img.classList.remove('lazy-image');
-                            img.classList.add('loaded');
-                            observer.unobserve(img);
+                        let retries = 2;
+
+                        const tryLoadImage = () => {
+                            img.src = src;
+                            img.onload = () => {
+                                img.classList.remove('lazy-image');
+                                img.classList.add('loaded');
+                                observer.unobserve(img);
+                            };
+                            img.onerror = () => {
+                                if (retries > 0) {
+                                    retries--;
+                                    setTimeout(tryLoadImage, 1000);
+                                } else {
+                                    img.src = fallbackImage;
+                                    img.classList.remove('lazy-image');
+                                    img.classList.add('loaded');
+                                    observer.unobserve(img);
+                                }
+                            };
                         };
-                        img.onerror = () => {
-                            img.src = fallbackImage;
-                            img.classList.remove('lazy-image');
-                            img.classList.add('loaded');
-                            observer.unobserve(img);
-                        };
+
+                        tryLoadImage();
                     }
                 });
             }, {
