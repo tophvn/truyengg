@@ -156,6 +156,7 @@ Chúng tôi hoan nghênh mọi đóng góp! Để tham gia:
 3. Commit thay đổi (`git commit -m "Thêm tính năng của bạn"`).
 4. Push lên nhánh (`git push origin feature/tinh-nang-cua-ban`).
 5. Mở Pull Request.
+6. 
 
 ## Giấy phép
 Dự án được cấp phép theo MIT License. Xem file [LICENSE](LICENSE) để biết thêm chi tiết.
